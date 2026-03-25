@@ -13,39 +13,118 @@
 #include "hardware/irq.h"
 #include "hardware/clocks.h"
 #include "i2s_audio.h"
+#include "debug.h"
 
 
 const uint LED_PIN = PICO_DEFAULT_LED_PIN;
 
 //extern const unsigned char _binary_Normal16KhzStereo_wav_start;
-extern const struct audio_data Normal16KhzStereo;
-//extern const size_t _binary_Normal16KhzStereo_wav_size;
+extern const struct audio_data Fast16KhzMono;
+extern const struct audio_data BetterLong16KhzMono;
+extern const struct audio_data EEEOOOO16monokhz;
+extern const struct audio_data Normal16KhzMono;
 uint8_t counts;
 
 
+
+const struct audio_data *tracklist[] = {&Normal16KhzMono,&EEEOOOO16monokhz,&BetterLong16KhzMono,&Fast16KhzMono};
+const struct audio_data *selected = &Normal16KhzMono;
+
 uint sample_head = 0;
+
+bool muted = true;
+
+static void __time_critical_func(audio_cb)();
 
 void audio_cb(int16_t *new_buffer,uint size)
 {
-    uint total_samples = sizeof(Normal16KhzStereo.data)/sizeof(Normal16KhzStereo.data)[0];
-    counts++;
-    if(counts % 2)
+    static int32_t working_audio_buffer[AUDIO_BUFFER_SIZE];
+    uint mono_size = size/2;
+    int16_t temp;
+    
+    const struct audio_data *Aselected = selected;
+    uint total_samples = Aselected->points;
+    gpio_put(LED_PIN, 1);
+
+    if(!muted)
     {
-        gpio_put(LED_PIN, 1);
+        for(uint i = 0; i < mono_size;i++)
+        {
+            working_audio_buffer[i] = (int32_t)Aselected->data[sample_head++];
+            if(sample_head >= total_samples)
+            {
+                sample_head = 0;
+            }
+        }
     }
     else
     {
-        gpio_put(LED_PIN, 0);
-    }
-    for(uint i = 0; i < size;i++)
-    {
-        new_buffer[i] = Normal16KhzStereo.data[sample_head++];
-        if(sample_head >= total_samples)
+        for(uint i = 0; i < mono_size;i++)
         {
-            sample_head = 0;
+            working_audio_buffer[i] = 0;
         }
     }
+
+    for(uint i = 0; i < mono_size;i++)
+    {
+        if(working_audio_buffer[i]>INT16_MAX)
+        {
+            temp=INT16_MAX;
+        }
+        else if(working_audio_buffer[i]<INT16_MIN)
+        {
+            temp=INT16_MIN;
+        }
+        else
+        {
+            temp=(int16_t)working_audio_buffer[i];
+        }
+
+        new_buffer[i*2] = temp;
+        new_buffer[(i*2)+1] = temp;
+        
+    }
+    gpio_put(LED_PIN, 0);
 }
+
+void mute(int argc,char **argv)
+{
+    muted = true;
+}
+
+DEFINE_DEBUG_SUB_NO_ARGS(mutesub,mute,"mute the wee-woos");
+
+void unmute(int argc,char **argv)
+{
+    muted = false;
+}
+
+
+DEFINE_DEBUG_SUB_NO_ARGS(unmutesub,unmute,"unmute the wee-woos");
+
+
+void cycletrack(int argc,char **argv)
+{
+    static uint on_track = 0;
+    uint tracks_n = sizeof(tracklist)/sizeof(tracklist[0]);
+    on_track++;
+    on_track %= tracks_n;
+    selected = tracklist[on_track];
+
+    sample_head=0;
+
+
+}
+
+DEFINE_DEBUG_SUB_NO_ARGS(cycletracksub,cycletrack,"cycle through tracks");
+
+
+
+void printfunc(const char *const print)
+{
+    printf("%s",print);
+}
+
 
 
 const uint I2S_DATA = 19;
@@ -59,8 +138,15 @@ int main() {
     sleep_ms(1000); //Give time for the usb to bootup
 
     printf("System Clock: %lu\n", clock_get_hz(clk_sys));
+    printf("WEEE WOOO WAGON\n");
 
-    printf("Data starts at 0x%08x and is %d bytes long\n",Normal16KhzStereo.data,Normal16KhzStereo.data_size);
+    subFnc(&mutesub);
+    subFnc(&unmutesub);
+    subFnc(&cycletracksub);
+
+    startdebug(printfunc);
+
+
 
     audio_i2s_config_t channel_1 = {
         .clock_pin_base = I2S_CLOCK,
@@ -78,21 +164,21 @@ int main() {
     audio_i2s_setup(&channel_1,audio_cb);
 
     uint32_t loops = 0;
+
+    bool firstchar = true;
     while (true) {
         
-        sleep_ms(100);
-        //gpio_put(LED_PIN, 0);
-        printf("woo\n");
-        sleep_ms(100);
-        printf("wee\n");
-        // if(loops & 0x1)
-        // {
-        //     printf("wee\n");
-        // }
-        // else
-        // {
-        //     printf("woo\n");
-        // }
-        // loops++;
+        int c = getchar_timeout_us(0);
+        
+        if (c != PICO_ERROR_TIMEOUT) {
+            if(firstchar)
+            {
+                firstchar = false;
+            }
+            else
+            {
+                debugIn((const char)c);
+            }
+        }
     }
 }

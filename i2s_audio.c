@@ -43,12 +43,13 @@ static void audio_i2s_dma_irq_handler(void)
     {
         if(*(int16_t**)dma_hw->ch[i2s_perf.dma_swap_ctrl].read_addr == real_audio_buffer)
         {
-            
-            i2s_perf.audio_cb(&real_audio_buffer[AUDIO_BUFFER_SIZE],AUDIO_BUFFER_SIZE);
+            i2s_perf.audio_cb(real_audio_buffer,AUDIO_BUFFER_SIZE);
+            //i2s_perf.audio_cb(&real_audio_buffer[AUDIO_BUFFER_SIZE],AUDIO_BUFFER_SIZE);
         }
         else
         {
-            i2s_perf.audio_cb(real_audio_buffer,AUDIO_BUFFER_SIZE);
+            i2s_perf.audio_cb(&real_audio_buffer[AUDIO_BUFFER_SIZE],AUDIO_BUFFER_SIZE);
+            //i2s_perf.audio_cb(real_audio_buffer,AUDIO_BUFFER_SIZE);
         }
 
         

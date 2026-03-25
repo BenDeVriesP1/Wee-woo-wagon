@@ -16,7 +16,11 @@ add_executable(wee_woo wee_woo.c)
 pico_generate_pio_header(wee_woo ${CMAKE_CURRENT_LIST_DIR}/audio_i2s.pio)
 
 target_sources(wee_woo PRIVATE 
-        Normal16KhzStereo.c
+        Fast16KhzMono.c
+        BetterLong16KhzMono.c
+        EEEOOOO16monokhz.c
+        Normal16KhzMono.c
+        debug.c
         i2s_audio.c)
 
 # pico_enable_stdio_uart(wee_woo 1)
