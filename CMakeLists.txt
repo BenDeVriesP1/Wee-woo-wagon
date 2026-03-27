@@ -29,6 +29,7 @@ pico_enable_stdio_usb(wee_woo 1)
 
 target_link_libraries(wee_woo PRIVATE
         pico_stdlib
+        hardware_i2c
         hardware_pio
         hardware_dma
         hardware_clocks

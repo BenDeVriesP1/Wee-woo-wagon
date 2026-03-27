@@ -12,11 +12,18 @@
 #include "hardware/dma.h"
 #include "hardware/irq.h"
 #include "hardware/clocks.h"
+#include "pico/binary_info.h"
+#include "hardware/i2c.h"
 #include "i2s_audio.h"
 #include "debug.h"
 
 
+
 const uint LED_PIN = PICO_DEFAULT_LED_PIN;
+const uint TLC_59XX_SDA_PIN = 10;
+const uint TLC_59XX_SCL_PIN = 11;
+const uint TLC_59XX_RESET_PIN = 12; 
+
 
 //extern const unsigned char _binary_Normal16KhzStereo_wav_start;
 extern const struct audio_data Fast16KhzMono;
@@ -33,12 +40,13 @@ const struct audio_data *selected = &Normal16KhzMono;
 uint sample_head = 0;
 
 bool muted = true;
+int32_t masterVolume = 1024;
 
 static void __time_critical_func(audio_cb)();
 
 void audio_cb(int16_t *new_buffer,uint size)
 {
-    static int32_t working_audio_buffer[AUDIO_BUFFER_SIZE];
+    static int32_t working_audio_buffer[AUDIO_BUFFER_SIZE/2];
     uint mono_size = size/2;
     int16_t temp;
     
@@ -46,27 +54,24 @@ void audio_cb(int16_t *new_buffer,uint size)
     uint total_samples = Aselected->points;
     gpio_put(LED_PIN, 1);
 
-    if(!muted)
-    {
-        for(uint i = 0; i < mono_size;i++)
-        {
-            working_audio_buffer[i] = (int32_t)Aselected->data[sample_head++];
-            if(sample_head >= total_samples)
-            {
-                sample_head = 0;
-            }
-        }
-    }
-    else
-    {
-        for(uint i = 0; i < mono_size;i++)
-        {
-            working_audio_buffer[i] = 0;
-        }
-    }
+    
 
     for(uint i = 0; i < mono_size;i++)
     {
+        working_audio_buffer[i] = (int32_t)Aselected->data[sample_head++];
+        if(sample_head >= total_samples)
+        {
+            sample_head = 0;
+        }
+    }
+
+
+    int32_t setVol = muted ? 0 : masterVolume;
+
+    for(uint i = 0; i < mono_size;i++)
+    {
+        working_audio_buffer[i] *= setVol;
+        working_audio_buffer[i] /= 256;
         if(working_audio_buffer[i]>INT16_MAX)
         {
             temp=INT16_MAX;
@@ -118,7 +123,12 @@ void cycletrack(int argc,char **argv)
 
 DEFINE_DEBUG_SUB_NO_ARGS(cycletracksub,cycletrack,"cycle through tracks");
 
+void setVolume(int argc,char **argv)
+{
+    masterVolume = strToInt(argv[0]);
+}
 
+DEFINE_DEBUG_SUB(setVolumesub,setVolume,"set master volume",true,1,1);
 
 void printfunc(const char *const print)
 {
@@ -135,6 +145,10 @@ int main() {
     set_sys_clock_khz(132000, true);
     stdio_init_all();
 
+    gpio_init(TLC_59XX_RESET_PIN);
+    gpio_set_dir(TLC_59XX_RESET_PIN, GPIO_OUT);
+    gpio_put(TLC_59XX_RESET_PIN, 0);
+
     sleep_ms(1000); //Give time for the usb to bootup
 
     printf("System Clock: %lu\n", clock_get_hz(clk_sys));
@@ -143,6 +157,7 @@ int main() {
     subFnc(&mutesub);
     subFnc(&unmutesub);
     subFnc(&cycletracksub);
+    subFnc(&setVolumesub);
 
     startdebug(printfunc);
 
@@ -158,6 +173,37 @@ int main() {
     // Init GPIO LED
     gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);
+
+
+    gpio_put(TLC_59XX_RESET_PIN, 1);
+
+    i2c_init(i2c1, 400 * 1000);
+    gpio_set_function(TLC_59XX_SDA_PIN, GPIO_FUNC_I2C);
+    gpio_set_function(TLC_59XX_SCL_PIN, GPIO_FUNC_I2C);
+    bi_decl(bi_2pins_with_func(TLC_59XX_SDA_PIN, TLC_59XX_SCL_PIN, GPIO_FUNC_I2C));
+
+    uint8_t readBuffer[8];
+    uint8_t val = 0x80;
+
+    i2c_write_blocking(i2c1, 0x60, &val, 1, true); // true to keep master control of bus
+    i2c_read_blocking(i2c1, 0x60, readBuffer, 8, false);
+    for (uint i = 0;i<8;i++)
+    {
+        printf("register %d read 0x%02x\n",1,readBuffer[i]);
+    }
+
+    uint8_t clearAndStart[] = {0x00,0x00};
+    i2c_write_blocking(i2c1, 0x60, clearAndStart, 2, false); // true to keep master control of bus
+
+    uint8_t set_all_pwm[] = {0x94,0xAA,0xAA,0xAA,0xAA};
+
+    i2c_write_blocking(i2c1, 0x60, set_all_pwm, 5, false); // true to keep master control of bus
+
+    uint8_t set1_50[] = {0x02,0x80};
+
+    i2c_write_blocking(i2c1, 0x60, set1_50, 2, false); // true to keep master control of bus
+
+
 
     gpio_put(LED_PIN, 1);
 
